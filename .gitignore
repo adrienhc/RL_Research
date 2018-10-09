@@ -1,3 +1,3 @@
-baselines/data/
-baselines/baselines/ppo1/
-dart-env/gym/envs/dart/
+baselines/data
+baselines/baselines/ppo1
+dart-env/gym/envs/dart

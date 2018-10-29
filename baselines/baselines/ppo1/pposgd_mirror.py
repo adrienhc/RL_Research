@@ -12,7 +12,7 @@ def traj_segment_generator(pi, env, horizon, stochastic):
     t = 0
     ac = env.action_space.sample() # not used, just so we have the datatype
     new = True # marks if we're on first timestep of an episode
-    ob = env.reset()
+    ob = env.reset()                                               #STARTING OBS IS FROM ENV.RESET()!! DO I CHANGE THE INITIAL STATE HERE?
 
     cur_ep_ret = 0 # return in current episode
     cur_ep_len = 0 # len of current episode
@@ -30,9 +30,9 @@ def traj_segment_generator(pi, env, horizon, stochastic):
     acs = np.array([ac for _ in range(horizon)])
     prevacs = acs.copy()
 
-    while True:
+    while True:    #generate a rollout, by repeatedly sampling / taking actions using the current policy.
         prevac = ac
-        ac, vpred = pi.act(stochastic, ob)
+        ac, vpred = pi.act(stochastic, ob)   #sample an action from the policy given current observation
 
         # Slight weirdness here because we need value function at time T
         # before returning segment [0, T-1] so we get the correct
@@ -40,45 +40,45 @@ def traj_segment_generator(pi, env, horizon, stochastic):
         if t > 0 and t % horizon == 0:
             yield {"ob" : obs, "rew" : rews, "vpred" : vpreds, "new" : news,
                     "ac" : acs, "prevac" : prevacs, "nextvpred": vpred * (1 - new),
-                    "ep_rets" : ep_rets, "ep_lens" : ep_lens, "pos_rews" : pos_rews, "neg_pens": neg_pens, "avg_vels":avg_vels}
+                    "ep_rets" : ep_rets, "ep_lens" : ep_lens, "pos_rews" : pos_rews, "neg_pens": neg_pens, "avg_vels":avg_vels}  #if done, return the arrays containing the relative info about the trajectory we just generated
             # Be careful!!! if you change the downstream algorithm to aggregate
             # several of these batches, then be sure to do a deepcopy
             ep_rets = []
             ep_lens = []
-        i = t % horizon
+        i = t % horizon   #add all of the data for this step in their respective arrays
         obs[i] = ob
         vpreds[i] = vpred
         news[i] = new
         acs[i] = ac
         prevacs[i] = prevac
 
-        ob, rew, new, envinfo = env.step(ac)
+        ob, rew, new, envinfo = env.step(ac)  #actually take the action sampled earlier
         if "pos_rew" in envinfo:
             pos_rews[i] = envinfo["pos_rew"]
         if "neg_pen" in envinfo:
             neg_pens[i] = envinfo["neg_pen"]
         if "avg_vel" in envinfo:
             avg_vels[i] = envinfo["avg_vel"]
-        rews[i] = rew
+        rews[i] = rew                        #add the observed reward in the 
 
         cur_ep_ret += rew
-        cur_ep_len += 1
-        if new:
+        cur_ep_len += 1      #update accumulated reward and length
+        if new:                           #if done signal from env.step()
             broke = False
-            if 'broke_sim' in envinfo:
+            if 'broke_sim' in envinfo:    
                 if envinfo['broke_sim']:
                     broke = True
             if not broke:
-                ep_rets.append(cur_ep_ret)
+                ep_rets.append(cur_ep_ret)  #if not broken, add this trajectory's rew and length to the all rews and lengths list 
                 ep_lens.append(cur_ep_len)
             else:
-                t -= (cur_ep_len+1)
+                t -= (cur_ep_len+1)     #if simulation broken, get t to the beginning of the broken simulation 
             cur_ep_ret = 0
             cur_ep_len = 0
-            ob = env.reset()
+            ob = env.reset() #start over from a clean slate     ---   #STARTING OBS IS FROM ENV.RESET()!! DO I CHANGE THE INITIAL STATE HERE?
         t += 1
 
-def add_vtarg_and_adv(seg, gamma, lam):
+def add_vtarg_and_adv(seg, gamma, lam):  #SEE    http://www.breloff.com/DeepRL-OnlineGAE/
     """
     Compute target value using TD(lambda) estimator, and advantage with GAE(lambda)
     """
@@ -90,9 +90,14 @@ def add_vtarg_and_adv(seg, gamma, lam):
     lastgaelam = 0
     for t in reversed(range(T)):
         nonterminal = 1-new[t+1]
-        delta = rew[t] + gamma * vpred[t+1] * nonterminal - vpred[t]
-        gaelam[t] = lastgaelam = delta + gamma * lam * nonterminal * lastgaelam
-    seg["tdlamret"] = seg["adv"] + seg["vpred"]
+        delta = rew[t] + gamma * vpred[t+1] * nonterminal - vpred[t]  # TD ERROR_t = Delta  =  Rew_t + Gamma(V_t+1) - V_t    //Advantage one step look ahead     //nudge to V_t in dir of V_t+1 (dir to update V_t) 
+
+        gaelam[t] = lastgaelam = delta + gamma * lam * nonterminal * lastgaelam  #lastgaelam = Gamma discounted Adv, Lambda step (lookahead)
+                                                                                 #g_t = TD ERROR_T + Gamma (Lambda) (g_t+1)  (over one step)
+                                                                                 #GAE = discounted sum of TD Errors! (over all steps)
+                                                                                 #Therefore GAE = Advantage! (over all steps)
+    seg["tdlamret"] = seg["adv"] + seg["vpred"]   #compute value TD error of State, by doing TD Lambda (Bellmann Backups with Lambda term) backwards, form finish to start
+                                                  #use it to compute Advantage A, for each state, as we go 
 
 def learn(env, policy_func, *,
         timesteps_per_batch, # timesteps per actor per update
